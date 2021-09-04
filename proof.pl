@@ -1,3 +1,5 @@
+:- use_module(library(clpfd)).
+
 % Language:
 % e + e, e - e, e * e, integer, x
 % x := e
@@ -181,4 +183,91 @@ proof_example(
             [rule(add_comm, [], proves([], X+Y=Y+X))],
             proves([], forall(m, X+m=m+X)))],
         proves([], forall(n, forall(m, n+m=m+n))))).
+
+% ========================
+% Program Execution
+% ========================
+
+% e + e, e - e, e * e, integer, x
+% x := e
+% skip
+% if e { e } else { e }
+% while e { e }
+% s ; s
+
+value(true).
+value(false).
+value(N) :- integer(N).
+
+% Expressions
+step(st(Memory, X), st(Memory, V)) :- atom(X), member(X-V, Memory).
+
+step(st(Memory, E1+E2), st(NewMemory, NewE1+E2)) :-
+    step(st(Memory, E1), st(NewMemory, NewE1)).
+step(st(Memory, E1+E2), st(NewMemory, E1+NewE2)) :-
+    step(st(Memory, E2), st(NewMemory, NewE2)).
+step(st(Memory, V1+V2), st(Memory, S)) :-
+    integer(V1),
+    integer(V2),
+    S #= V1 + V2.
+
+step(st(Memory, E1-E2), st(NewMemory, NewE1-E2)) :-
+    step(st(Memory, E1), st(NewMemory, NewE1)).
+step(st(Memory, E1-E2), st(NewMemory, E1-NewE2)) :-
+    step(st(Memory, E2), st(NewMemory, NewE2)).
+step(st(Memory, V1-V2), st(Memory, S)) :-
+    integer(V1),
+    integer(V2),
+    S #= V1 - V2.
+
+step(st(Memory, E1*E2), st(NewMemory, NewE1*E2)) :-
+    step(st(Memory, E1), st(NewMemory, NewE1)).
+step(st(Memory, E1*E2), st(NewMemory, E1*NewE2)) :-
+    step(st(Memory, E2), st(NewMemory, NewE2)).
+step(st(Memory, V1*V2), st(Memory, S)) :-
+    integer(V1),
+    integer(V2),
+    S #= V1 * V2.
+
+step(st(Memory, E1=E2), st(NewMemory, NewE1=E2)) :-
+    step(st(Memory, E1), st(NewMemory, NewE1)).
+step(st(Memory, E1=E2), st(NewMemory, E1=NewE2)) :-
+    step(st(Memory, E2), st(NewMemory, NewE2)).
+step(st(Memory, V=V), st(Memory, true)) :- value(V).
+step(st(Memory, V=W), st(Memory, false)) :- value(V), value(W), dif(V, W).
+
+% Statements
+step(st(Memory, skip ; S2), st(Memory, S2)).
+
+step(st(Memory, S1 ; S2), st(NewMemory, NewS1 ; S2)) :-
+    step(st(Memory, S1), st(NewMemory, NewS1)).
+
+step(st(Memory, X := E), st(NewMemory, X := NewE)) :-
+    step(st(Memory, E), exp(NewMemory, NewE)).
+step(st(Memory, X := V), st(NewMemory, skip)) :-
+    value(V),
+    select(X-_, Memory, Temp),
+    select(X-V, NewMemory, Temp).
+
+step(st(Memory, if(C, T, E)), st(NewMemory, if(NewC, T, E))) :-
+    step(st(Memory, C), st(NewMemory, NewC)).
+step(st(Memory, if(true, T, _E)), st(Memory, T)).
+step(st(Memory, if(false, _T, E)), st(Memory, E)).
+
+step(st(Memory, while(C, Body)), st(Memory, if(C, Body ; while(C, Body), skip))).
+
+many_step(State, State).
+many_step(State1, State2) :-
+    step(State1, Temp),
+    many_step(Temp, State2).
+
+final_step(Init, Final) :-
+    many_step(Init, Final),
+    not(step(Final, _)).
+
+init_to(V, X, X-V).
+run(P, ResultMemory) :-
+    setof(X, free_var(P, X), Xs),
+    maplist(init_to(0), Xs, InitMemory),
+    final_step(st(InitMemory, P), st(ResultMemory, skip)).
 
