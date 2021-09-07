@@ -1,4 +1,5 @@
 :- use_module(library(clpfd)).
+:- use_module(library(dcg/basics)).
 
 % Language:
 % e + e, e - e, e * e, integer, x
@@ -9,8 +10,8 @@
 % s ; s
 
 :- dynamic proof/1.
+:- dynamic proof_tree/2.
 :- discontiguous proof/1.
-:- discontiguous proof_example/1.
 
 % ========================
 % First order logic
@@ -217,7 +218,8 @@ inferred_rule(Name, Prf) :-
     proof(Prf),
     extract_body(P, Body),
     fresh_body(Body, FreshBody),
-    asserta(proof(rule(Name, [], proves(_, FreshBody)))).
+    asserta(proof(rule(Name, [], proves(_, FreshBody)))),
+    asserta(proof_tree(Name, Prf)).
 
 fresh_body(Body, FreshBody) :-
     setof(X, free_var(Body, X), Xs),
@@ -277,7 +279,7 @@ fresh_body(Body, FreshBody) :-
         ], proves([], forall(n, forall(m, s(n)+m=n+s(m)) -> forall(m, s(s(n))+m=s(n)+s(m)))))
     ], proves([], forall(n, forall(m, s(n)+m=n+s(m)))))).
 
-% Prove natural number addition is commutative
+% Prove n+m=n+m
 :- inferred_rule(add_comm,
     rule(nat_induct, [
         rule(allI, [
@@ -318,13 +320,6 @@ fresh_body(Body, FreshBody) :-
 % ========================
 % Program Execution
 % ========================
-
-% e + e, e - e, e * e, integer, x
-% x := e
-% skip
-% if e { e } else { e }
-% while e { e }
-% s ; s
 
 value(true).
 value(false).
@@ -409,4 +404,60 @@ run(P, ResultMemory) :-
     setof(X, free_var(P, X), Xs),
     maplist(init_to(0), Xs, InitMemory),
     final_step(st(InitMemory, P), st(ResultMemory, skip)).
+
+% ========================
+% Latex
+% ========================
+
+phrase_atom(F, A) :-
+    nonvar(A),
+    atom_codes(A, C),
+    phrase(F, C).
+phrase_atom(F, A) :-
+    var(A),
+    phrase(F, C),
+    atom_codes(A, C).
+
+latex_prems([]) --> "".
+latex_prems([P|Ps]) --> latex(P), "\\\\", latex_prems(Ps).
+
+latex_assms([]) --> "".
+latex_assms([P]) --> latex(P).
+latex_assms([P1,P2|Ps]) --> latex(P1), ",", latex_assms([P2|Ps]).
+
+% e + e, e - e, e * e, integer, x
+% x := e
+% skip
+% if e { e } else { e }
+% while e { e }
+% s ; s
+latex(X) --> { when(nonvar(X), atom(X)) }, atom(X).
+latex(N) --> { when(nonvar(N), integer(N)) }, integer(N).
+latex(A+B) --> latex(A), "+", latex(B).
+latex(A-B) --> latex(A), "-", latex(B).
+latex(A*B) --> latex(A), "*", latex(B).
+latex(A=B) --> latex(A), "=", latex(B).
+latex(X:=E) --> latex(X), " := ", latex(E).
+latex(skip) --> "skip".
+latex(if(C, T, E)) -->
+    "\\textbf{if}~", latex(C),
+    "~\\{~", latex(T),
+    "~\\}~\\textbf{else}~\\{~", latex(E),
+    "~\\}".
+latex(while(C, Body)) -->
+    "\\textbf{while}~", latex(C),
+    "\\{~", latex(Body),
+    "\\}".
+latex(true) --> "true".
+latex(false) --> "false".
+latex(not(P)) --> "\\lnot", latex(P).
+latex([]) --> "\\emptyset".
+latex([P|Ps]) --> "\\{", latex_assms([P|Ps]), "\\}".
+
+latex(proves(S, P)) --> latex(S), " ", "\\vdash", " ", latex(P).
+
+latex(rule(Name, Prems, Con)) -->
+    "\\inferrule*[right=", { when(nonvar(Name), atom(Name)) }, atom(Name), "]{",
+    latex_prems(Prems),
+    "}{", latex(Con), "}".
 
