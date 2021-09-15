@@ -12,6 +12,7 @@
 :- dynamic proof/1.
 :- dynamic proof_tree/2.
 :- discontiguous proof/1.
+:- discontiguous inference_rule/3.
 
 % ========================
 % First order logic
@@ -19,39 +20,35 @@
 
 proof(rule(assm, [], proves(S, P))) :- member(P, S).
 
-proof(rule(trueI, [], proves(_S, true))).
+inference_rule(trueI, [], proves(_, true)).
+inference_rule(falseE, [proves(S, false)], proves(S, _)).
 
-proof(rule(falseE, [Prf], proves(S, _))) :-
-    proof_of(Prf, S, false).
+inference_rule(notI, [proves([A|S], false)], proves(S, not(A))).
+inference_rule(notE, [
+    proves(S, A),
+    proves(S, not(A))
+], proves(S, false)).
 
-proof(rule(notI, [Prf], proves(S, not(A)))) :-
-    proof_of(Prf, [A|S], false).
-proof(rule(notE, [Prf, NotPrf], proves(S, false))) :-
-    proof_of(Prf, S, A),
-    proof_of(NotPrf, S, not(A)).
+inference_rule(orIL, [proves(S, A)], proves(S, A\/_)).
+inference_rule(orIR, [proves(S, B)], proves(S, _\/B)).
+inference_rule(orE, [
+    proves(S, A\/B),
+    proves([A|S], C),
+    proves([B|S], C)
+], proves(S, C)).
 
-proof(rule(orIL, [APrf], proves(S, A\/_B))) :-
-    proof_of(APrf, S, A).
-proof(rule(orIR, [BPrf], proves(S, _A\/B))) :-
-    proof_of(BPrf, S, B).
-proof(rule(orE, [OrPrf, FromA, FromB], proves(S, C))) :-
-    proof_of(OrPrf, S, A\/B),
-    proof_of(FromA, [A|S], C),
-    proof_of(FromB, [B|S], C).
+inference_rule(andI, [
+    proves(S, A),
+    proves(S, B)
+], proves(S, A/\B)).
+inference_rule(andEL, [proves(S, A/\_)], proves(S, A)).
+inference_rule(andER, [proves(S, _/\B)], proves(S, B)).
 
-proof(rule(andI, [APrf, BPrf], proves(S, A/\B))) :-
-    proof_of(APrf, S, A),
-    proof_of(BPrf, S, B).
-proof(rule(andEL, [Prf], proves(S, A))) :-
-    proof_of(Prf, S, A/\_).
-proof(rule(andER, [Prf], proves(S, B))) :-
-    proof_of(Prf, S, _/\B).
-
-proof(rule(impI, [Prf], proves(S, A->B))) :-
-    proof_of(Prf, [A|S], B).
-proof(rule(impE, [ImpPrf, HypPrf], proves(S, B))) :-
-    proof_of(ImpPrf, S, A->B),
-    proof_of(HypPrf, S, A).
+inference_rule(impI, [proves([A|S], B)], proves(S, A->B)).
+inference_rule(impE, [
+    proves(S, A->B),
+    proves(S, A)
+], proves(S, B)).
 
 proof(rule(allI, [Prf], proves(S, forall(X, P)))) :-
     proof_of(Prf, S, Q),
@@ -76,37 +73,61 @@ proof(rule(exE, [ExPrf, UsePrf], proves(S, C))) :-
 % Hoare Logic
 % ========================
 
-proof(rule(skip, [], P-skip-P)).
-
 proof(rule(assign, [], P-(X:=E)-Q)) :-
     substitute(X, E, Q, P).
 
-proof(rule(seq, [S1Prf, S2Prf], P-(S1;S2)-Q)) :-
-    proof_of(S1Prf, P-S1-R),
-    proof_of(S2Prf, R-S2-Q).
+inference_rule(skip, [], P-skip-P).
 
-proof(rule(if, [TPrf, EPrf], P-if(C, T, E)-Q)) :-
-    proof_of(TPrf, [C|P]-T-Q),
-    proof_of(EPrf, [not(C)|P]-E-Q).
+inference_rule(seq, [
+    P-S1-R,
+    R-S2-Q
+], P-(S1;S2)-Q).
 
-proof(rule(conseq, [PImp, Prf, QImp], P-S-Q)) :-
-    proof_of(PImp, [], P->P2),
-    proof_of(QImp, [], Q2->Q),
-    proof_of(Prf, P2-S-Q2).
+inference_rule(if, [
+    [C|P]-T-Q,
+    [not(C)|P]-E-Q
+], P-if(C, T, E)-Q).
 
-proof(rule(while, [Prf], P-while(C, S)-[not(C)|P])) :-
-    proof_of(Prf, [C|P]-S-P).
+inference_rule(conseq, [
+    proves([], P->P2),
+    proves([], Q2->Q),
+    P2-S-Q2
+], P-S-Q).
+
+inference_rule(while, [
+    [C|P]-S-P
+], P-while(C,S)-[not(C)|P]).
 
 % ========================
 % Useful Facts
 % ========================
+inference_rule(eq_refl, [], proves(_, X=X)).
 
-proof(rule(eq_refl, [], proves(_, X=X))).
-proof(rule(eq_sym, [Prf], proves(S, Y=X))) :-
-    proof_of(Prf, S, X=Y).
-proof(rule(eq_trans, [Prf1, Prf2], proves(S, X=Z))) :-
-    proof_of(Prf1, S, X=Y),
-    proof_of(Prf2, S, Y=Z).
+inference_rule(eq_sym, [proves(S, X=Y)], proves(S, Y=X)).
+
+inference_rule(eq_trans, [
+    proves(S, X=Y),
+    proves(S, Y=Z)
+], proves(S, X=Z)).
+
+inference_rule(add_zero, [], proves(_, 0+N=N)).
+inference_rule(add_succ, [], proves(_, s(N)+M=s(N+M))).
+inference_rule(mul_zero, [], proves(_, 0*_=0)).
+inference_rule(mul_succ, [], proves(_, s(N)*M = M + N*M)).
+inference_rule(nat_eq, [proves(S, s(N)=s(M))], proves(S, N=M)).
+inference_rule(nat_succ_nonzero, [], proves(_, not(s(_)=0))).
+
+form_rule(Conclusion, rule(_, _, Conclusion)).
+proof(rule(Name, Prems, Conclusion)) :-
+    inference_rule(Name, ToShow, Conclusion),
+    maplist(form_rule, ToShow, Prems),
+    forall(member(Prem, Prems), proof(Prem)).
+
+proof(rule(nat_induct, [ZeroPrf, SuccPrf], proves(S, forall(N, P)))) :-
+    substitute(N, 0, P, ZeroP),
+    proof_of(ZeroPrf, S, ZeroP),
+    substitute(N, s(N), P, SuccP),
+    proof_of(SuccPrf, S, forall(N, P->SuccP)).
 
 proof(rule(rewrite, [EqPrf, Prf], proves(S, P))) :-
     proof_of(EqPrf, S, X=E),
@@ -118,23 +139,10 @@ proof(rule(func_eq, [Prf], proves(S, FX=FY))) :-
     FY =.. [F|Y],
     proof_of(Prf, S, X=Y).
 
-proof(rule(add_zero, [], proves(_, 0+N=N))).
-proof(rule(add_succ, [], proves(_, s(N)+M=s(N+M)))).
-proof(rule(mul_zero, [], proves(_, 0*_=0))).
-proof(rule(mul_succ, [], proves(_, s(N)*M = M + N*M))).
-proof(rule(nat_eq, [Prf], proves(S, N=M))) :-
-    proof_of(Prf, S, s(N)=s(M)).
-proof(rule(nat_succ_nonzero, [], proves(_, not(s(_)=0)))).
-proof(rule(nat_induct, [ZeroPrf, SuccPrf], proves(S, forall(N, P)))) :-
-    substitute(N, 0, P, ZeroP),
-    proof_of(ZeroPrf, S, ZeroP),
-    substitute(N, s(N), P, SuccP),
-    proof_of(SuccPrf, S, forall(N, P->SuccP)).
-
-proof(rule(compute, [], proves(S, P))) :-
-    final_step(st(S, P), st(S, true)).
-proof(rule(compute_false, [], proves(S, not(P)))) :-
-    final_step(st(S, P), st(S, false)).
+% proof(rule(compute, [], proves(S, P))) :-
+%     final_step(st(S, P), st(S, true)).
+% proof(rule(compute_false, [], proves(S, not(P)))) :-
+%     final_step(st(S, P), st(S, false)).
 
 % ========================
 % Utilities
@@ -392,18 +400,22 @@ step(st(Memory, if(false, _T, E)), st(Memory, E)).
 
 step(st(Memory, while(C, Body)), st(Memory, if(C, Body ; while(C, Body), skip))).
 
-many_step(State, State).
-many_step(State1, State2) :-
+many_step(N, State, State) :- N #>= 0.
+many_step(N, State1, State2) :-
+    N #> 0,
+    N1 #= N - 1,
     step(State1, Temp),
-    many_step(Temp, State2).
+    many_step(N1, Temp, State2).
 
-final_step(Init, Final) :- many_step(Init, Final), not(step(Final, _)).
+final_step(N, Init, Final) :-
+    many_step(N, Init, Final),
+    not(step(Final, _)).
 
 init_to(V, X, X=V).
-run(P, ResultMemory) :-
+run(N, P, ResultMemory) :-
     setof(X, free_var(P, X), Xs),
     maplist(init_to(0), Xs, InitMemory),
-    final_step(st(InitMemory, P), st(ResultMemory, skip)).
+    final_step(N, st(InitMemory, P), st(ResultMemory, skip)).
 
 % ========================
 % Latex
