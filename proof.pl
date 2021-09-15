@@ -1,6 +1,8 @@
 :- use_module(library(clpfd)).
 :- use_module(library(dcg/basics)).
 
+:- use_module(library(achelois)).
+
 % Language:
 % e + e, e - e, e * e, integer, x
 % x := e
@@ -9,10 +11,16 @@
 % while e { e }
 % s ; s
 
-:- dynamic proof/1.
 :- dynamic proof_tree/2.
 :- discontiguous proof/1.
+:- dynamic inference_rule/3.
 :- discontiguous inference_rule/3.
+
+form_rule(Conclusion, rule(_, _, Conclusion)).
+proof(rule(Name, Prems, Conclusion)) :-
+    inference_rule(Name, ToShow, Conclusion),
+    maplist(form_rule, ToShow, Prems),
+    forall(member(Prem, Prems), proof(Prem)).
 
 % ========================
 % First order logic
@@ -117,12 +125,6 @@ inference_rule(mul_succ, [], proves(_, s(N)*M = M + N*M)).
 inference_rule(nat_eq, [proves(S, s(N)=s(M))], proves(S, N=M)).
 inference_rule(nat_succ_nonzero, [], proves(_, not(s(_)=0))).
 
-form_rule(Conclusion, rule(_, _, Conclusion)).
-proof(rule(Name, Prems, Conclusion)) :-
-    inference_rule(Name, ToShow, Conclusion),
-    maplist(form_rule, ToShow, Prems),
-    forall(member(Prem, Prems), proof(Prem)).
-
 proof(rule(nat_induct, [ZeroPrf, SuccPrf], proves(S, forall(N, P)))) :-
     substitute(N, 0, P, ZeroP),
     proof_of(ZeroPrf, S, ZeroP),
@@ -226,7 +228,7 @@ inferred_rule(Name, Prf) :-
     proof(Prf),
     extract_body(P, Body),
     fresh_body(Body, FreshBody),
-    asserta(proof(rule(Name, [], proves(_, FreshBody)))),
+    asserta(inference_rule(Name, [], proves(_, FreshBody))),
     asserta(proof_tree(Name, Prf)).
 
 fresh_body(Body, FreshBody) :-
@@ -247,7 +249,7 @@ fresh_body(Body, FreshBody) :-
                     rule(add_succ, [], proves([n+0=n], s(n)+0=s(n+0))),
                     rule(rewrite, [
                         rule(assm, [], proves([n+0=n], n+0=n)),
-                        rule(eq_refl, [], proves(_, s(n)=s(n)))
+                        rule(eq_refl, [], proves([n+0=n], s(n)=s(n)))
                     ], proves([n+0=n], s(n+0)=s(n)))
                 ], proves([n+0=n], s(n)+0=s(n)))
             ], proves([], (n+0=n)->(s(n)+0=s(n))))
@@ -273,14 +275,14 @@ fresh_body(Body, FreshBody) :-
             rule(impI, [
                 rule(allI, [
                     rule(rewrite, [
-                        rule(add_succ, [], proves(_, s(s(n))+k=s(s(n)+k))),
+                        rule(add_succ, [], proves([forall(m, s(n)+m=n+s(m))], s(s(n))+k=s(s(n)+k))),
                         rule(rewrite, [
-                            rule(add_succ, [], proves(_, s(n)+s(k)=s(n+s(k)))),
+                            rule(add_succ, [], proves([forall(m, s(n)+m=n+s(m))], s(n)+s(k)=s(n+s(k)))),
                             rule(rewrite, [
-                                rule(allE, [rule(assm, [], proves(_, forall(m, s(n)+m=n+s(m))))], proves(_, s(n)+k=n+s(k))),
-                                rule(eq_refl, [], proves(_, s(n+s(k))=s(n+s(k))))
-                            ], proves(_, s(s(n)+k) = s(n+s(k))))
-                        ], proves(_, s(s(n)+k)=s(n)+s(k)))
+                                rule(allE, [rule(assm, [], proves([forall(m, s(n)+m=n+s(m))], forall(m, s(n)+m=n+s(m))))], proves([forall(m, s(n)+m=n+s(m))], s(n)+k=n+s(k))),
+                                rule(eq_refl, [], proves([forall(m, s(n)+m=n+s(m))], s(n+s(k))=s(n+s(k))))
+                            ], proves([forall(m, s(n)+m=n+s(m))], s(s(n)+k) = s(n+s(k))))
+                        ], proves([forall(m, s(n)+m=n+s(m))], s(s(n)+k)=s(n)+s(k)))
                     ], proves([forall(m, s(n)+m=n+s(m))], s(s(n))+k=s(n)+s(k)))
                 ], proves([forall(m, s(n)+m=n+s(m))], forall(m, s(s(n))+m=s(n)+s(m))))
             ], proves([], forall(m, s(n)+m=n+s(m)) -> forall(m, s(s(n))+m=s(n)+s(m))))
@@ -302,24 +304,24 @@ fresh_body(Body, FreshBody) :-
             rule(impI, [
                 rule(allI, [
                     rule(rewrite, [
-                        rule(add_succ, [], proves(_, s(n)+k=s(n+k))),
+                        rule(add_succ, [], proves([forall(m, n+m=m+n)], s(n)+k=s(n+k))),
                         rule(rewrite, [
                             rule(rewrite, [
                                 rule(eq_sym, [
-                                    rule(add_succ, [], proves(_, s(k)+n=s(k+n)))
-                                ], proves(_, s(k+n)=s(k)+n)),
+                                    rule(add_succ, [], proves([forall(m, n+m=m+n)], s(k)+n=s(k+n)))
+                                ], proves([forall(m, n+m=m+n)], s(k+n)=s(k)+n)),
                                 rule(eq_sym, [
-                                    rule(add_succ_comm, [], proves(_, s(k)+n=k+s(n)))
-                                ], proves(_, k+s(n)=s(k)+n))
+                                    rule(add_succ_comm, [], proves([forall(m, n+m=m+n)], s(k)+n=k+s(n)))
+                                ], proves([forall(m, n+m=m+n)], k+s(n)=s(k)+n))
                             ], proves([forall(m, n+m=m+n)], k+s(n)=s(k+n))),
                             rule(rewrite, [
                                 rule(allE, [
-                                    rule(assm, [], proves(_, forall(m, n+m=m+n)))
-                                ], proves(_, n+k=k+n)),
-                                rule(eq_refl, [], proves(_, s(k+n)=s(k+n)))
-                            ], proves(_, s(n+k)=s(k+n)))
+                                    rule(assm, [], proves([forall(m, n+m=m+n)], forall(m, n+m=m+n)))
+                                ], proves([forall(m, n+m=m+n)], n+k=k+n)),
+                                rule(eq_refl, [], proves([forall(m, n+m=m+n)], s(k+n)=s(k+n)))
+                            ], proves([forall(m, n+m=m+n)], s(n+k)=s(k+n)))
                         ], proves([forall(m, n+m=m+n)], s(n+k)=k+s(n)))
-                    ], proves(_, s(n)+k=k+s(n)))
+                    ], proves([forall(m, n+m=m+n)], s(n)+k=k+s(n)))
                 ], proves([forall(m, n+m=m+n)], forall(m, s(n)+m=m+s(n))))
             ], proves([], forall(m, n+m=m+n) -> forall(m, s(n)+m=m+s(n))))
         ], proves([], forall(n, forall(m, n+m=m+n) -> forall(m, s(n)+m=m+s(n)))))
@@ -437,12 +439,8 @@ latex_assms([]) --> "".
 latex_assms([P]) --> latex(P).
 latex_assms([P1,P2|Ps]) --> latex(P1), ",", latex_assms([P2|Ps]).
 
-% e + e, e - e, e * e, integer, x
-% x := e
-% skip
-% if e { e } else { e }
-% while e { e }
-% s ; s
+latex(s(N)) --> "s(", latex(N), ")".
+
 latex(X) --> { when(nonvar(X), atom(X)) }, atom(X).
 latex(N) --> { when(nonvar(N), integer(N)) }, integer(N).
 latex(A+B) --> latex(A), "+", latex(B).
@@ -460,16 +458,38 @@ latex(while(C, Body)) -->
     "\\textbf{while}~", latex(C),
     "\\{~", latex(Body),
     "\\}".
+
 latex(true) --> "true".
 latex(false) --> "false".
 latex(not(P)) --> "\\lnot", latex(P).
+latex(P->Q) --> latex(P), " ", "\\Rightarrow", " ", latex(Q).
+latex(P/\Q) --> latex(P), " ", "\\land", " ", latex(Q).
+latex(P\/Q) --> latex(P), " ", "\\lor", " ", latex(Q).
+
+latex(forall(X, P)) --> "\\forall", " ", latex(X), ".", latex(P).
+latex(exists(X, P)) --> "\\exists", " ", latex(X), ".", latex(P).
+
 latex([]) --> "\\emptyset".
 latex([P|Ps]) --> "\\{", latex_assms([P|Ps]), "\\}".
 
 latex(proves(S, P)) --> latex(S), " ", "\\vdash", " ", latex(P).
 
 latex(rule(Name, Prems, Con)) -->
-    "\\inferrule*[right=", { when(nonvar(Name), atom(Name)) }, atom(Name), "]{",
+    "\\inferrule*[right=", { when(nonvar(Name), atom(Name)), rule_name(Name, OutName) }, atom(OutName), "]{",
     latex_prems(Prems),
-    "}{", latex(Con), "}".
+    " }{", latex(Con), "}".
+
+rule_name(Name, OutputName) :-
+    atomic_list_concat(Parts, '_', Name),
+    atomic_list_concat(Parts, '-', OutputName).
+
+write_latex(P) :-
+    phrase_atom(latex(P), PStr),
+    read_file('header.tex', Header),
+    read_file('footer.tex', Footer),
+    atomic_list_concat([Header, PStr, Footer], '\n', Out),
+    write_file('temp.tex', Out),
+
+    process(path(pdflatex), ['temp.tex']),
+    process(path('xdg-open'), ['temp.pdf']).
 
