@@ -342,6 +342,7 @@ step(st(Memory, X), st(Memory, V)) :- atom(X), member(V=X, Memory).
 step(st(Memory, E1+E2), st(NewMemory, NewE1+E2)) :-
     step(st(Memory, E1), st(NewMemory, NewE1)).
 step(st(Memory, E1+E2), st(NewMemory, E1+NewE2)) :-
+    value(E1),
     step(st(Memory, E2), st(NewMemory, NewE2)).
 step(st(Memory, V1+V2), st(Memory, S)) :-
     integer(V1),
@@ -351,6 +352,7 @@ step(st(Memory, V1+V2), st(Memory, S)) :-
 step(st(Memory, E1-E2), st(NewMemory, NewE1-E2)) :-
     step(st(Memory, E1), st(NewMemory, NewE1)).
 step(st(Memory, E1-E2), st(NewMemory, E1-NewE2)) :-
+    value(E1),
     step(st(Memory, E2), st(NewMemory, NewE2)).
 step(st(Memory, V1-V2), st(Memory, S)) :-
     integer(V1),
@@ -360,6 +362,7 @@ step(st(Memory, V1-V2), st(Memory, S)) :-
 step(st(Memory, E1*E2), st(NewMemory, NewE1*E2)) :-
     step(st(Memory, E1), st(NewMemory, NewE1)).
 step(st(Memory, E1*E2), st(NewMemory, E1*NewE2)) :-
+    value(E1),
     step(st(Memory, E2), st(NewMemory, NewE2)).
 step(st(Memory, V1*V2), st(Memory, S)) :-
     integer(V1),
@@ -369,18 +372,45 @@ step(st(Memory, V1*V2), st(Memory, S)) :-
 step(st(Memory, E1=E2), st(NewMemory, NewE1=E2)) :-
     step(st(Memory, E1), st(NewMemory, NewE1)).
 step(st(Memory, E1=E2), st(NewMemory, E1=NewE2)) :-
+    value(E1),
     step(st(Memory, E2), st(NewMemory, NewE2)).
 step(st(Memory, V=V), st(Memory, true)) :- value(V).
 step(st(Memory, V=W), st(Memory, false)) :- value(V), value(W), dif(V, W).
 
 :- op(700, yfx, <=).
+:- op(700, yfx, >=).
 
 step(st(Memory, E1<=E2), st(NewMemory, NewE1<=E2)) :-
     step(st(Memory, E1), st(NewMemory, NewE1)).
 step(st(Memory, E1<=E2), st(NewMemory, E1<=NewE2)) :-
+    value(E1),
     step(st(Memory, E2), st(NewMemory, NewE2)).
 step(st(Memory, V<=W), st(Memory, true)) :- value(V), value(W), V #=< W.
 step(st(Memory, V<=W), st(Memory, false)) :- value(V), value(W), V #> W.
+
+step(st(Memory, E1<E2), st(NewMemory, NewE1<E2)) :-
+    step(st(Memory, E1), st(NewMemory, NewE1)).
+step(st(Memory, E1<E2), st(NewMemory, E1<NewE2)) :-
+    value(E1),
+    step(st(Memory, E2), st(NewMemory, NewE2)).
+step(st(Memory, V<W), st(Memory, true)) :- value(V), value(W), V #< W.
+step(st(Memory, V<W), st(Memory, false)) :- value(V), value(W), V #>= W.
+
+step(st(Memory, E1>E2), st(NewMemory, NewE1>E2)) :-
+    step(st(Memory, E1), st(NewMemory, NewE1)).
+step(st(Memory, E1>E2), st(NewMemory, E1>NewE2)) :-
+    value(E1),
+    step(st(Memory, E2), st(NewMemory, NewE2)).
+step(st(Memory, V>W), st(Memory, true)) :- value(V), value(W), V #> W.
+step(st(Memory, V>W), st(Memory, false)) :- value(V), value(W), V #=< W.
+
+step(st(Memory, E1>=E2), st(NewMemory, NewE1>=E2)) :-
+    step(st(Memory, E1), st(NewMemory, NewE1)).
+step(st(Memory, E1>=E2), st(NewMemory, E1>=NewE2)) :-
+    value(E1),
+    step(st(Memory, E2), st(NewMemory, NewE2)).
+step(st(Memory, V>=W), st(Memory, true)) :- value(V), value(W), V #>= W.
+step(st(Memory, V>=W), st(Memory, false)) :- value(V), value(W), V #< W.
 
 % Statements
 step(st(Memory, skip ; S2), st(Memory, S2)).
@@ -390,10 +420,9 @@ step(st(Memory, S1 ; S2), st(NewMemory, NewS1 ; S2)) :-
 
 step(st(Memory, X := E), st(NewMemory, X := NewE)) :-
     step(st(Memory, E), st(NewMemory, NewE)).
-step(st(Memory, X := V), st(NewMemory, skip)) :-
+step(st(Memory, X := V), st([X=V|Temp], skip)) :-
     value(V),
-    select(X=_, Memory, Temp),
-    select(X=V, NewMemory, Temp).
+    select(X=_, Memory, Temp).
 
 step(st(Memory, if(C, T, E)), st(NewMemory, if(NewC, T, E))) :-
     step(st(Memory, C), st(NewMemory, NewC)).
@@ -418,6 +447,91 @@ run(N, P, ResultMemory) :-
     setof(X, free_var(P, X), Xs),
     maplist(init_to(0), Xs, InitMemory),
     final_step(N, st(InitMemory, P), st(ResultMemory, skip)).
+
+% ========================
+% Parsing
+% ========================
+
+letter(A) --> [A], { A in 65..90 \/ 97..122 }.
+
+letters([A|Rest]) --> letter(A), letters_cont(Rest).
+letters_cont([]) --> [].
+letters_cont([A|Rest]) --> letter(A), letters_cont(Rest).
+
+arguments([]) --> blanks, ")".
+arguments([F|Rest]) --> top_formula(F), blanks, ("," ; ";"), blanks, arguments(Rest).
+arguments([F]) --> top_formula(F), blanks, ")".
+
+constant_formula(X) --> number(X).
+constant_formula(S) --> [34], string_without([34], Codes), [34], { atom_codes(S, Codes) }. % char_code('"', 34).
+
+atomic_formula(F) --> constant_formula(F).
+atomic_formula(X) --> letters(XCodes), { atom_codes(X, XCodes) }.
+atomic_formula(func(F, Args)) -->
+    letters(FCodes), { atom_codes(F, FCodes) },
+    blanks, "(", blanks,
+    arguments(Args).
+
+atomic_formula(F) --> "(", blanks, top_formula(F), blanks, ")".
+
+pow_formula(F) -->
+    atomic_formula(L),
+    (
+        blanks, "^", blanks, pow_formula(R) -> { F = pow(L, R) };
+        { F = L }
+    ).
+
+neg_formula(F) --> pow_formula(F).
+neg_formula(neg(F)) --> "-", blanks, pow_formula(F).
+
+mul_sym(L, R, L*R) --> "*".
+mul_formula(F) -->
+    neg_formula(L),
+    (
+        blanks, mul_sym(L, R, F), blanks, mul_formula(R);
+        { F = L }
+    ).
+
+add_sym(L, R, L+R) --> "+".
+add_sym(L, R, L-R) --> "-".
+add_formula(F) -->
+    mul_formula(L),
+    (
+        blanks, add_sym(L, R, F), blanks, add_formula(R);
+        { F = L }
+    ).
+
+bool_sym(L, R, L<R) --> "<".
+bool_sym(L, R, L<=R) --> "<=".
+bool_sym(L, R, L>R) --> ">".
+bool_sym(L, R, L>=R) --> ">=".
+bool_sym(L, R, L=R) --> "=".
+bool_sym(L, R, not(L=R)) --> "!=".
+bool_formula(F) -->
+    add_formula(L),
+    (
+        blanks, bool_sym(L, R, F), blanks, add_formula(R);
+        { F = L }
+    ).
+
+top_formula(F) --> bool_formula(F).
+
+statement(X:=E) --> letters(XCodes), { atom_codes(X, XCodes) }, blanks, ":=", blanks, top_formula(E).
+
+statement(if(C, T, E)) -->
+    "if", blanks, top_formula(C), blanks, "{", blanks,
+        program(T), blanks,
+    "}", blanks, "else", blanks, "{", blanks,
+        program(E), blanks,
+    "}".
+
+statement(while(C, Body)) -->
+    "while", blanks, top_formula(C), blanks, "{", blanks,
+        program(Body), blanks,
+    "}".
+
+program(S) --> statement(S).
+program(S1;S2) --> statement(S1), blanks, ";", blanks, program(S2).
 
 % ========================
 % Latex
