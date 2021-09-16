@@ -35,7 +35,7 @@ inference_rule(notI, [proves([A|S], false)], proves(S, not(A))).
 inference_rule(notE, [
     proves(S, A),
     proves(S, not(A))
-], proves(S, false)).
+], proves(S, _)).
 
 inference_rule(orIL, [proves(S, A)], proves(S, A\/_)).
 inference_rule(orIR, [proves(S, B)], proves(S, _\/B)).
@@ -45,12 +45,12 @@ inference_rule(orE, [
     proves([B|S], C)
 ], proves(S, C)).
 
-inference_rule(andI, [
-    proves(S, A),
-    proves(S, B)
-], proves(S, A/\B)).
-inference_rule(andEL, [proves(S, A/\_)], proves(S, A)).
-inference_rule(andER, [proves(S, _/\B)], proves(S, B)).
+proves_conc(S, Conc, rule(_, _, proves(S, Conc))).
+proof(rule(andI, Prems, proves(S, Conjs))) :-
+    maplist(proves_conc(S), Conjs, Prems),
+    forall(member(Prem, Prems), proof(Prem)).
+proof(rule(andE, [rule(_, _, proves(S, Conjs))], proves(S, Conc))) :-
+    member(Conc, Conjs).
 
 inference_rule(impI, [proves([A|S], B)], proves(S, A->B)).
 inference_rule(impE, [
@@ -96,10 +96,14 @@ inference_rule(if, [
     [not(C)|P]-E-Q
 ], P-if(C, T, E)-Q).
 
-inference_rule(conseq, [
-    proves([], P->P2),
-    proves([], Q2->Q),
-    P2-S-Q2
+inference_rule(weaken, [
+    proves(Q2, Q),
+    P-S-Q2
+], P-S-Q).
+
+inference_rule(strengthen, [
+    proves(P, P2),
+    P2-S-Q
 ], P-S-Q).
 
 inference_rule(while, [
@@ -117,6 +121,17 @@ inference_rule(eq_trans, [
     proves(S, X=Y),
     proves(S, Y=Z)
 ], proves(S, X=Z)).
+
+inference_rule(leq_refl, [], proves(_, X<=X)).
+
+inference_rule(leq_antisym, [proves(S, X<=Y), proves(S, Y<=X)], proves(S, X=Y)).
+
+inference_rule(leq_trans, [
+    proves(S, X<=Y),
+    proves(S, Y<=Z)
+], proves(S, X<=Z)).
+
+inference_rule(leq_total, [], proves(_, (X<=Y)\/(Y<=X))).
 
 inference_rule(add_zero, [], proves(_, 0+N=N)).
 inference_rule(add_succ, [], proves(_, s(N)+M=s(N+M))).
@@ -224,11 +239,18 @@ dif_zip([X|Xs], Before, [V|After]) :-
     dif_zip(Xs, [V|Before], After).
 
 inferred_rule(Name, Prf) :-
-    Prf = rule(_, _, proves([], P)),
+    Prf = rule(_, _, proves(S, P)),
     proof(Prf),
     extract_body(P, Body),
     fresh_body(Body, FreshBody),
-    asserta(inference_rule(Name, [], proves(_, FreshBody))),
+    asserta(inference_rule(Name, [], proves(S, FreshBody))),
+    asserta(proof_tree(Name, Prf)).
+
+inferred_rule(Name, Prf) :-
+    Prf = rule(_, _, P-S-Q),
+    proof(Prf),
+    fresh_body(P-S-Q, FreshBody),
+    asserta(inference_rule(Name, [], FreshBody)),
     asserta(proof_tree(Name, Prf)).
 
 fresh_body(Body, FreshBody) :-
@@ -326,6 +348,40 @@ fresh_body(Body, FreshBody) :-
             ], proves([], forall(m, n+m=m+n) -> forall(m, s(n)+m=m+s(n))))
         ], proves([], forall(n, forall(m, n+m=m+n) -> forall(m, s(n)+m=m+s(n)))))
     ], proves([], forall(n, forall(m, n+m=m+n))))).
+
+:- inferred_rule(example_add,
+    rule(strengthen, [
+        rule(andI, [
+            rule(eq_refl, [], proves([], a+b=a+b))
+        ], proves([], [a+b=a+b])),
+        rule(assign, [], [a+b=a+b]-(x:=a+b)-[x=a+b])
+    ], []-(x:=a+b)-[x=a+b])).
+
+:- inferred_rule(example_max,
+    rule(if, [
+        rule(strengthen, [
+            rule(andI, [
+                rule(assm, [], proves([x <= y], x <= y)),
+                rule(leq_refl, [], proves([x <= y], y <= y))
+            ], proves([x <= y], [x <= y, y <= y])),
+            rule(assign, [], [x <= y, y <= y]-(m := y)-[x <= m, y <= m])
+        ], [x <= y]-(m := y)-[x <= m, y <= m]),
+
+        rule(strengthen, [
+            rule(andI, [
+                rule(leq_refl, [], proves([not(x <= y)], x <= x)),
+                rule(orE, [
+                    rule(leq_total, [], proves([not(x <= y)], (x <= y)\/(y <= x))),
+                    rule(notE, [
+                        rule(assm, [], proves([x <= y, not(x <= y)], x <= y)),
+                        rule(assm, [], proves([x <= y, not(x <= y)], not(x <= y)))
+                    ], proves([x <= y, not(x <= y)], y <= x)),
+                    rule(assm, [], proves([y <= x, not(x <= y)], y <= x))
+                ], proves([not(x <= y)], y <= x))
+            ], proves([not(x <= y)], [x <= x, y <= x])),
+            rule(assign, [], [x <= x, y <= x]-(m := x)-[x <= m, y <= m])
+        ], [not(x <= y)]-(m := x)-[x <= m, y <= m])
+    ], []-if(x <= y, m := y, m := x)-[x <= m, y <= m])).
 
 % ========================
 % Program Execution
@@ -431,7 +487,7 @@ step(st(Memory, if(false, _T, E)), st(Memory, E)).
 
 step(st(Memory, while(C, Body)), st(Memory, if(C, Body ; while(C, Body), skip))).
 
-many_step(N, State, State) :- N #>= 0.
+many_step(0, State, State).
 many_step(N, State1, State2) :-
     N #> 0,
     N1 #= N - 1,
@@ -451,6 +507,15 @@ run(N, P, ResultMemory) :-
 % ========================
 % Parsing
 % ========================
+
+phrase_atom(F, A) :-
+    nonvar(A),
+    atom_codes(A, C),
+    phrase(F, C).
+phrase_atom(F, A) :-
+    var(A),
+    phrase(F, C),
+    atom_codes(A, C).
 
 letter(A) --> [A], { A in 65..90 \/ 97..122 }.
 
@@ -537,15 +602,6 @@ program(S1;S2) --> statement(S1), blanks, ";", blanks, program(S2).
 % Latex
 % ========================
 
-phrase_atom(F, A) :-
-    nonvar(A),
-    atom_codes(A, C),
-    phrase(F, C).
-phrase_atom(F, A) :-
-    var(A),
-    phrase(F, C),
-    atom_codes(A, C).
-
 latex_prems([]) --> "".
 latex_prems([P|Ps]) --> latex(P), "\\\\", latex_prems(Ps).
 
@@ -557,8 +613,9 @@ latex(s(N)) --> "s(", latex(N), ")".
 
 latex(X) --> { when(nonvar(X), atom(X)) }, atom(X).
 latex(N) --> { when(nonvar(N), integer(N)) }, integer(N).
+latex(A<=B) --> latex(A), " \\leq ", latex(B).
 latex(A+B) --> latex(A), "+", latex(B).
-latex(A-B) --> latex(A), "-", latex(B).
+latex(A-B) --> { not(is_list(A)), not(is_list(B)) }, latex(A), "-", latex(B).
 latex(A*B) --> latex(A), "*", latex(B).
 latex(A=B) --> latex(A), "=", latex(B).
 latex(X:=E) --> latex(X), " := ", latex(E).
@@ -575,7 +632,7 @@ latex(while(C, Body)) -->
 
 latex(true) --> "true".
 latex(false) --> "false".
-latex(not(P)) --> "\\lnot", latex(P).
+latex(not(P)) --> "\\lnot (", latex(P), ")".
 latex(P->Q) --> latex(P), " ", "\\Rightarrow", " ", latex(Q).
 latex(P/\Q) --> latex(P), " ", "\\land", " ", latex(Q).
 latex(P\/Q) --> latex(P), " ", "\\lor", " ", latex(Q).
@@ -583,10 +640,12 @@ latex(P\/Q) --> latex(P), " ", "\\lor", " ", latex(Q).
 latex(forall(X, P)) --> "\\forall", " ", latex(X), ".", latex(P).
 latex(exists(X, P)) --> "\\exists", " ", latex(X), ".", latex(P).
 
-latex([]) --> "\\emptyset".
-latex([P|Ps]) --> "\\{", latex_assms([P|Ps]), "\\}".
+latex(Ps) --> "\\{", latex_assms(Ps), "\\}".
 
 latex(proves(S, P)) --> latex(S), " ", "\\vdash", " ", latex(P).
+
+latex(P-S-Q) -->
+    latex(P), "~", latex(S), "~", latex(Q).
 
 latex(rule(Name, Prems, Con)) -->
     "\\inferrule*[right=", { when(nonvar(Name), atom(Name)), rule_name(Name, OutName) }, atom(OutName), "]{",
